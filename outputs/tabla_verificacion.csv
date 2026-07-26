@@ -1,0 +1,6 @@
+caso,entrada,resultado_esperado,resultado_obtenido,estado
+Invariante de conservación n+c+r=N,"N=8, R=2, horizonte=7200s, seed=1","n+c+r=N en todo momento, sin violaciones","violacion=False, c_final=0, r_final=0",OK
+Capacidad N=1: segunda solicitud simultánea rechazada,"N=1, R=0; 1ra=consulta, 2da=reabastecimiento (ambas antes de liberar)","1ra aceptada=True, 2da aceptada=False","1ra=True, 2da=False",OK
+Saturación total (lambda >> mu),"N=8, R=2, lambda_C=lambda_R=1000/s, mu_C=2, mu_R=1/3, horizonte=600s",tasa de rechazo global > 0.95,tasa=0.99859,OK
+"Convergencia DES -> Erlang B (R=0, config markoviana)","N=8, R=0, lambda_C=8.0, lambda_R=1.0, mu_C=2.0, mu_R=0.3333, horizonte=7200s, 30 réplicas",Erlang B teórico (0.17882) dentro del IC95% de ambas tasas simuladas,"consulta: media=0.17932 IC95=[0.17792,0.18073]; reab: media=0.17994 IC95=[0.17817,0.18171]",OK
+"Sistema recién iniciado: (c=0,r=0) y primera solicitud aceptada","N=8, R=2, t=0 (sin solicitudes previas)","c=0, r=0 en t=0; primera solicitud (N>0) aceptada=True","c=0, r=0, primera_aceptada=True",OK

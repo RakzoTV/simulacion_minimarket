@@ -10,8 +10,13 @@ import streamlit as st
 
 from model.markov import resolver_markov
 from model.monte_carlo import barrido_delta_t
-from model.parametros import ESCENARIOS, PARAMETROS_ESTOCASTICOS, PARAMETROS_EJECUCION
-from model.replicas import correr_replicas, resumen_ic95
+from model.parametros import (
+    ESCENARIOS,
+    PARAMETROS_ESTOCASTICOS,
+    PARAMETROS_EJECUCION,
+    TRAMOS_JORNADA_COMPLETA,
+)
+from model.replicas import correr_replicas, correr_replicas_jornada, resumen_ic95, COLUMNAS_JORNADA
 from model.simulation import correr_replica
 
 # --- Paleta (validada para daltonismo/contraste, ver skill dataviz) ---
@@ -91,6 +96,18 @@ with st.sidebar:
     )
 
     st.divider()
+    st.subheader("Experimento secundario")
+    correr_jornada = st.checkbox(
+        "Correr también jornada completa (12h)",
+        help="Corre 30 réplicas adicionales de 12h (43200s) para el escenario "
+             "activo, con tasas de llegada moduladas por franjas horarias "
+             "pico/valle (apertura, media mañana y mediodía como pico; "
+             "5 de 12 horas) en vez de tasa constante. Siempre en configuración "
+             "empírica, según la sección 13.4 del informe. Ver tab "
+             "'Jornada completa (12h)'.",
+    )
+
+    st.divider()
     ejecutar = st.button("Ejecutar simulación", type="primary", use_container_width=True)
 
 if "resultados" not in st.session_state:
@@ -138,10 +155,36 @@ if ejecutar:
         markov_A = resolver_markov(ESCENARIOS["A"]["N"], ESCENARIOS["A"]["R"], lambda_C, lambda_R, mu_C, mu_R)
         markov_B = resolver_markov(ESCENARIOS["B"]["N"], ESCENARIOS["B"]["R"], lambda_C, lambda_R, mu_C, mu_R)
 
+        # Los resultados de jornada completa se acumulan por escenario en
+        # session_state para que correr primero A y después B (o viceversa)
+        # no se pisen — cada corrida solo actualiza la entrada de su propio
+        # escenario, dejando las demás disponibles para comparar.
+        jornadas_previas = (st.session_state.get("resultados") or {}).get("jornadas", {})
+        if correr_jornada:
+            with st.spinner("Corriendo 30 réplicas de jornada completa (12h)..."):
+                df_jornada, trayectoria_jornada = correr_replicas_jornada(
+                    N=esc_activo["N"], R=esc_activo["R"],
+                    lambda_C=lambda_C, lambda_R=lambda_R,
+                    horizonte=PARAMETROS_EJECUCION["horizonte_jornada"],
+                    n_replicas=n_replicas, S=S_sucursales,
+                    mu_C=mu_C, mu_R=mu_R,
+                    escenario=opcion_escenario, seed_base=seed_base,
+                    calentamiento=calentamiento,
+                )
+                jornadas_previas[opcion_escenario] = {
+                    "df": df_jornada,
+                    "resumen": resumen_ic95(df_jornada, columnas=COLUMNAS_JORNADA),
+                    "trayectoria": trayectoria_jornada,
+                    "N": esc_activo["N"],
+                    "R": esc_activo["R"],
+                    "seeds": list(range(seed_base, seed_base + n_replicas)),
+                }
+
         st.session_state["resultados"] = {
             "df_todo": df_todo,
             "resumen": resumen_ic95(df_todo),
             "trayectoria": res_trayectoria,
+            "jornadas": jornadas_previas,
             "markov_A": markov_A,
             "markov_B": markov_B,
             "modo_servicio": modo_servicio_key,
@@ -211,8 +254,8 @@ st.divider()
 # Tabs de contenido
 # =============================================================================
 
-tab_comparacion, tab_trayectoria, tab_verificacion, tab_rafagas, tab_datos = st.tabs(
-    ["Escenario A vs B", "Trayectoria c(t) / r(t)", "DES vs Markov", "Ráfagas (Monte Carlo)", "Datos y exportar"]
+tab_comparacion, tab_trayectoria, tab_jornada, tab_verificacion, tab_rafagas, tab_datos = st.tabs(
+    ["Escenario A vs B", "Trayectoria c(t) / r(t)", "Jornada completa (12h)", "DES vs Markov", "Ráfagas (Monte Carlo)", "Datos y exportar"]
 )
 
 # --- Tab: comparación A vs B ---
@@ -309,6 +352,135 @@ with tab_trayectoria:
         st.plotly_chart(fig_tray, use_container_width=True)
     else:
         st.warning("No se registró trayectoria para esta corrida.")
+
+# --- Tab: jornada completa (12h, franjas pico/valle) ---
+with tab_jornada:
+    st.markdown(
+        "Experimento secundario (sección 2.5 de la especificación, sección 13.4 "
+        "del informe): jornada comercial completa de 12h, con la tasa de llegada "
+        "modulada por franjas horarias en vez de ser constante. Apertura, media "
+        "mañana y mediodía son bloques de **pico** (multiplicador ×1.0); el "
+        "resto son bloques de **valle** (×0.35) — 5 de las 12 horas en pico, "
+        "7 en valle. Corre siempre en configuración **empírica**, con 30 "
+        "réplicas y las mismas semillas comunes que el experimento principal."
+    )
+
+    jornadas = resultados.get("jornadas", {})
+    if not jornadas:
+        st.info(
+            "Marcá **'Correr también jornada completa (12h)'** en la barra "
+            "lateral y volvé a ejecutar la simulación para ver estos resultados."
+        )
+    else:
+        escenarios_jornada = list(jornadas.keys())
+        esc_jornada_sel = (
+            st.radio("Escenario", escenarios_jornada, horizontal=True)
+            if len(escenarios_jornada) > 1 else escenarios_jornada[0]
+        )
+        datos_j = jornadas[esc_jornada_sel]
+        resumen_j = datos_j["resumen"].iloc[0]
+        N_act, R_act = datos_j["N"], datos_j["R"]
+
+        st.markdown(f"**Escenario {esc_jornada_sel}** — N={N_act}, R={R_act} · "
+                     f"{len(datos_j['df'])} réplicas · semillas "
+                     f"{datos_j['seeds'][0]}–{datos_j['seeds'][-1]}")
+
+        k1, k2 = st.columns(2)
+        k1.metric(
+            "Rechazo consulta — horas pico",
+            f"{resumen_j['tasa_rechazo_consulta_pico_media']:.1%}",
+            help=f"IC 95%: [{resumen_j['tasa_rechazo_consulta_pico_ic95_lo']:.1%}, "
+                 f"{resumen_j['tasa_rechazo_consulta_pico_ic95_hi']:.1%}]",
+        )
+        k2.metric(
+            "Rechazo consulta — horas valle",
+            f"{resumen_j['tasa_rechazo_consulta_valle_media']:.1%}",
+            help=f"IC 95%: [{resumen_j['tasa_rechazo_consulta_valle_ic95_lo']:.1%}, "
+                 f"{resumen_j['tasa_rechazo_consulta_valle_ic95_hi']:.1%}]",
+        )
+        k3, k4 = st.columns(2)
+        k3.metric(
+            "Rechazo reabastecimiento — horas pico",
+            f"{resumen_j['tasa_rechazo_reab_pico_media']:.1%}",
+            help=f"IC 95%: [{resumen_j['tasa_rechazo_reab_pico_ic95_lo']:.1%}, "
+                 f"{resumen_j['tasa_rechazo_reab_pico_ic95_hi']:.1%}]",
+        )
+        k4.metric(
+            "Rechazo reabastecimiento — horas valle",
+            f"{resumen_j['tasa_rechazo_reab_valle_media']:.1%}",
+            help=f"IC 95%: [{resumen_j['tasa_rechazo_reab_valle_ic95_lo']:.1%}, "
+                 f"{resumen_j['tasa_rechazo_reab_valle_ic95_hi']:.1%}]",
+        )
+        st.caption(
+            f"Agregado de las 12h — Rechazo consulta: "
+            f"**{resumen_j['tasa_rechazo_consulta_total_media']:.1%}** · "
+            f"Rechazo reabastecimiento: "
+            f"**{resumen_j['tasa_rechazo_reab_total_media']:.1%}**"
+        )
+
+        trayectoria_j = datos_j["trayectoria"]
+        if trayectoria_j:
+            t_j = [p[0] for p in trayectoria_j]
+            c_j = np.array([p[1] for p in trayectoria_j])
+            r_j = np.array([p[2] for p in trayectoria_j])
+
+            fig_jornada = go.Figure()
+            for h_inicio, h_fin, etiqueta in TRAMOS_JORNADA_COMPLETA:
+                if etiqueta == "pico":
+                    fig_jornada.add_vrect(
+                        x0=h_inicio * 3600, x1=h_fin * 3600,
+                        fillcolor=COLOR_REAB, opacity=0.06, line_width=0,
+                    )
+            fig_jornada.add_trace(go.Scatter(
+                x=t_j, y=c_j, name="c(t) — consultas ocupadas", mode="lines",
+                line=dict(color=COLOR_CONSULTA, width=1.5),
+            ))
+            fig_jornada.add_trace(go.Scatter(
+                x=t_j, y=r_j, name="r(t) — reabastecimiento ocupado", mode="lines",
+                line=dict(color=COLOR_REAB, width=1.5),
+            ))
+            fig_jornada.add_hline(y=N_act, line_dash="dash", line_color=COLOR_AXIS, line_width=1,
+                                   annotation_text=f"N = {N_act}", annotation_font_size=11)
+            fig_jornada.update_layout(
+                xaxis=dict(
+                    title="tiempo (h)", gridcolor=COLOR_GRID,
+                    tickvals=[h * 3600 for h in range(0, 13)],
+                    ticktext=[str(h) for h in range(0, 13)],
+                ),
+                yaxis=dict(title="hilos ocupados", gridcolor=COLOR_GRID, zerolinecolor=COLOR_AXIS,
+                           range=[0, N_act + 0.5]),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                plot_bgcolor="#fcfcfb", paper_bgcolor="rgba(0,0,0,0)",
+                margin=dict(t=60, b=10),
+                hovermode="x unified",
+            )
+            st.plotly_chart(fig_jornada, use_container_width=True)
+            st.caption(
+                "Trayectoria de la primera réplica, como ejemplo. Las bandas "
+                "sombreadas en naranja marcan los bloques de tráfico pico."
+            )
+        else:
+            st.warning("No se registró trayectoria para la corrida de jornada completa.")
+
+        st.divider()
+        st.markdown("**Detalle por réplica** (desglose pico/valle):")
+        st.dataframe(datos_j["df"], use_container_width=True, hide_index=True)
+
+        col_j1, col_j2 = st.columns(2)
+        with col_j1:
+            st.download_button(
+                f"Descargar réplicas jornada — Escenario {esc_jornada_sel} (CSV)",
+                datos_j["df"].to_csv(index=False).encode("utf-8"),
+                file_name=f"jornada_replicas_{esc_jornada_sel}.csv", mime="text/csv",
+                use_container_width=True,
+            )
+        with col_j2:
+            st.download_button(
+                f"Descargar resumen IC 95% jornada — Escenario {esc_jornada_sel} (CSV)",
+                datos_j["resumen"].to_csv(index=False).encode("utf-8"),
+                file_name=f"jornada_resumen_ic95_{esc_jornada_sel}.csv", mime="text/csv",
+                use_container_width=True,
+            )
 
 # --- Tab: verificación DES vs Markov ---
 with tab_verificacion:

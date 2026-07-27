@@ -26,6 +26,48 @@ FRANJAS_HORARIAS = {
     "valle": 0.35,
 }
 
+# Cronograma de la jornada completa de 12h (sección 12.3.5 del informe):
+# "la jornada comercial... comprende doce horas, dentro de las cuales se
+# identifican cinco bloques horarios de alta actividad -apertura, media
+# mañana y mediodía- frente a siete bloques de menor actividad."
+# Una tupla (hora_inicio, hora_fin, "pico"|"valle") por cada una de las 12
+# horas de la jornada. Apertura = hora 0; media mañana = horas 2-3;
+# mediodía = horas 5-6 -> 5 bloques "pico" agrupados, 7 "valle".
+TRAMOS_JORNADA_COMPLETA = [
+    (0, 1, "pico"),    # apertura
+    (1, 2, "valle"),
+    (2, 3, "pico"),    # media mañana
+    (3, 4, "pico"),    # media mañana
+    (4, 5, "valle"),
+    (5, 6, "pico"),    # mediodía
+    (6, 7, "pico"),    # mediodía
+    (7, 8, "valle"),
+    (8, 9, "valle"),
+    (9, 10, "valle"),
+    (10, 11, "valle"),
+    (11, 12, "valle"),
+]
+
+
+def franjas_jornada_completa():
+    """Convierte TRAMOS_JORNADA_COMPLETA (horas, etiqueta) al formato que espera
+    `correr_replica(..., franjas=...)`: [(t_inicio_seg, t_fin_seg, multiplicador), ...]
+    """
+    return [
+        (h_inicio * 3600, h_fin * 3600, FRANJAS_HORARIAS[etiqueta])
+        for h_inicio, h_fin, etiqueta in TRAMOS_JORNADA_COMPLETA
+    ]
+
+
+def etiqueta_tramo_jornada(t_segundos):
+    """Clasifica un instante (en segundos, dentro de [0, 43200)) como 'pico' o
+    'valle' según TRAMOS_JORNADA_COMPLETA. Usado para desglosar métricas por
+    franja horaria en el experimento de jornada completa."""
+    for h_inicio, h_fin, etiqueta in TRAMOS_JORNADA_COMPLETA:
+        if h_inicio * 3600 <= t_segundos < h_fin * 3600:
+            return etiqueta
+    return "valle"
+
 # Medias de las distribuciones empíricas (para consistencia con el modo markoviano
 # y para el cálculo analítico de Markov/Erlang B, que solo necesita la media)
 MEDIAS_EMPIRICAS = {

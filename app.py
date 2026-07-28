@@ -1,6 +1,4 @@
 """Interfaz Streamlit del simulador API Gateway con reserva de capacidad.
-
-Ver sección 6 de SPEC_implementacion_simulacion.md.
 """
 
 import numpy as np

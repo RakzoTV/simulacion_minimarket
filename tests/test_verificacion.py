@@ -1,4 +1,4 @@
-"""Tests de verificación del modelo (sección 5 de SPEC_implementacion_simulacion.md).
+"""Tests de verificación del modelo.
 
 Cada test agrega una fila a outputs/tabla_verificacion.csv con:
 caso, entrada, resultado esperado, resultado obtenido, estado.

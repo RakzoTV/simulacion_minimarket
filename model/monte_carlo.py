@@ -1,4 +1,4 @@
-"""Estrategia Monte Carlo estática (sección 3A): probabilidad de saturación del
+"""Estrategia Monte Carlo estática: probabilidad de saturación del
 pool ante una ráfaga instantánea de solicitudes en una ventana delta_t, asumiendo
 que ningún hilo se libera durante la ventana (cota superior conservadora).
 

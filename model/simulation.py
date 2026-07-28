@@ -1,6 +1,6 @@
 """Motor de eventos discretos del API Gateway con reserva de capacidad.
 
-Implementa las reglas fijadas en la sección 1 de SPEC_implementacion_simulacion.md:
+Implementa las reglas fijadas:
 pool compartido de N hilos, R reservados para reabastecimiento, rechazo inmediato
 sin colas.
 """
